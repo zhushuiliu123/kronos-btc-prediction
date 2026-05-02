@@ -1,0 +1,83 @@
+"""
+Kronos NumPy 推理包 - 工具函数
+纯 NumPy 实现，无需 PyTorch
+"""
+
+import json
+import struct
+import numpy as np
+
+
+def read_safetensors(filepath):
+    """读取 safetensors 文件，无需 PyTorch，返回 numpy 数组字典。"""
+    metadata = {}
+    arrays = {}
+
+    with open(filepath, 'rb') as f:
+        header_size = struct.unpack('<Q', f.read(8))[0]
+        header_json = f.read(header_size).decode('utf-8')
+        header = json.loads(header_json)
+
+        dtype_map = {
+            'BOOL': np.bool_, 'U8': np.uint8, 'I8': np.int8,
+            'I16': np.int16, 'I32': np.int32, 'I64': np.int64,
+            'F16': np.float16, 'F32': np.float32, 'F64': np.float64,
+            'BF16': np.float32
+        }
+
+        for key, info in header.items():
+            if key == '__metadata__':
+                continue
+            dtype = dtype_map.get(info.get('dtype', 'F32'), np.float32)
+            data_offsets = info['data_offsets']
+            shape = info.get('shape', None)
+
+            f.seek(8 + header_size + data_offsets[0])
+            byte_count = data_offsets[1] - data_offsets[0]
+
+            if dtype == np.bool_:
+                raw = np.frombuffer(f.read(byte_count), dtype=np.uint8).astype(np.bool_)
+            elif info.get('dtype') == 'BF16':
+                raw_u16 = np.frombuffer(f.read(byte_count), dtype=np.uint16)
+                raw = raw_u16.astype(np.float32)
+            else:
+                raw = np.frombuffer(f.read(byte_count), dtype=dtype)
+
+            if shape:
+                raw = raw.reshape(shape)
+
+            arrays[key] = raw.astype(np.float32)
+
+    return arrays
+
+
+def make_timestamps_from_dates(dates, timeframe='1d'):
+    """从日期列表生成时间戳特征 [minute, hour, weekday, day, month]。"""
+    import numpy as np
+    stamps = np.zeros((1, len(dates), 5), dtype=np.float32)
+    for i, dt in enumerate(dates):
+        stamps[0, i] = [dt.minute, dt.hour, dt.weekday(), dt.day, dt.month]
+    return stamps
+
+
+def detect_timeframe(df):
+    """检测数据的时间频率。"""
+    if len(df) < 2 or 'timestamps' not in df.columns:
+        return "Unknown"
+    try:
+        diffs = []
+        for i in range(1, min(10, len(df))):
+            diff = df['timestamps'].iloc[i] - df['timestamps'].iloc[i-1]
+            diffs.append(diff)
+        avg_diff = sum(diffs, df['timestamps'].iloc[1] - df['timestamps'].iloc[0]) / len(diffs)
+        total_seconds = avg_diff.total_seconds()
+        if total_seconds < 60:
+            return f"{int(total_seconds)} seconds"
+        elif total_seconds < 3600:
+            return f"{int(total_seconds / 60)} minutes"
+        elif total_seconds < 86400:
+            return f"{int(total_seconds / 3600)} hours"
+        else:
+            return f"{int(total_seconds / 86400)} days"
+    except Exception:
+        return "Unknown"

@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# WorkBuddy workspace
+.workbuddy/
+
+# Temporary/debug files
+*.txt
+!README.txt
+*.log
+
+# Generated data files (user should fetch fresh data)
+btc_history_*.csv
+btc_pred_vs_actual.csv
+kronos_mini_result.csv
+
+# Generated Word doc (user can regenerate)
+kronos_optimization_plan.docx
+
+# Model cache (large files, download separately via download_models.py)
+model_cache/
+
+# Streamlit
+.streamlit/secrets.toml
