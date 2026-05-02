@@ -32,18 +32,52 @@ kronos-btc-prediction/
 
 ## 快速开始
 
-### 1. 环境要求
+### 方式一：Docker 部署（推荐）
+
+只需 [Docker](https://docs.docker.com/get-docker/)，无需手动安装 Python 或依赖。
+
+```bash
+# 克隆仓库
+git clone https://github.com/zhushuiliu123/kronos-btc-prediction.git
+cd kronos-btc-prediction
+
+# 一键启动（首次会自动下载模型权重，约 50MB）
+docker compose up -d
+```
+
+打开浏览器访问 `http://localhost:8501` 即可使用。
+
+停止服务：
+
+```bash
+docker compose down
+```
+
+**自定义端口**：编辑 `docker-compose.yml`，将 `"8501:8501"` 改为 `"你的端口:8501"`。
+
+**持久化模型权重**：模型下载后保存在 Docker Volume `kronos-model-cache` 中，容器重建不会重复下载。
+
+#### 手动 Docker 构建运行
+
+```bash
+docker build -t kronos-btc .
+docker run -d -p 8501:8501 -v kronos-model-cache:/app/model_cache --name kronos kronos-btc
+```
+
+### 方式二：本地安装
+
+#### 1. 环境要求
 
 - Python 3.10+
 - 网络连接（首次需下载模型权重）
 
-### 2. 安装依赖
+#### 2. 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. 下载模型权重
+#### 3. 下载模型权重
 
 ```bash
 python download_models.py
@@ -55,7 +89,7 @@ python download_models.py
 - [NeoQuasar/Kronos-mini](https://huggingface.co/NeoQuasar/Kronos-mini) — 4.1M 参数预测模型
 - [NeoQuasar/Kronos-Tokenizer-2k](https://huggingface.co/NeoQuasar/Kronos-Tokenizer-2k) — BSQ 分词器
 
-### 4a. 启动工作台（GUI 模式）
+#### 4a. 启动工作台（GUI 模式）
 
 ```bash
 streamlit run kronos_dashboard.py
@@ -68,8 +102,9 @@ streamlit run kronos_dashboard.py
 - 一键运行预测，查看 K 线对比图
 - 批量预测对比不同参数组合
 - 下载预测结果 CSV
+- 中英韩三语界面切换
 
-### 4b. 命令行模式（获取数据 + 评估）
+#### 4b. 命令行模式（获取数据 + 评估）
 
 ```bash
 # 获取最近 500 天 BTC 日 K 数据

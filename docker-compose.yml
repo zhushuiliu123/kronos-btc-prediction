@@ -1,0 +1,13 @@
+services:
+  kronos:
+    build: .
+    container_name: kronos-btc-prediction
+    ports:
+      - "8501:8501"
+    volumes:
+      # Persist model weights so they survive container restarts
+      - kronos-model-cache:/app/model_cache
+    restart: unless-stopped
+
+volumes:
+  kronos-model-cache:
