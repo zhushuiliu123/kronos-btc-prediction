@@ -1,6 +1,7 @@
 """
 Kronos 金融 K 线预测工作台
 纯 NumPy 推理 + Streamlit 可视化界面
+支持中文 / English / 한국어 三语切换
 """
 
 import os
@@ -16,14 +17,19 @@ import plotly.graph_objects as go
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from kronos_numpy import KronosEngine
+from i18n import t, LANGUAGES, LANG_NAMES
 
 # ============ 页面配置 ============
 st.set_page_config(
-    page_title="Kronos 金融预测工作台",
+    page_title="Kronos Financial Prediction",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ============ 语言初始化 ============
+if 'lang' not in st.session_state:
+    st.session_state.lang = 'zh'
 
 # ============ 自定义样式 ============
 st.markdown("""
@@ -146,26 +152,27 @@ def prepare_input(df, lookback, pred_len):
 
 def run_prediction(lookback, pred_len, temperature, top_p, greedy):
     """执行预测并显示结果"""
+    L = st.session_state.lang
     df = st.session_state.input_data
     engine = st.session_state.engine
 
     if len(df) < lookback + pred_len:
-        st.error(f"数据不足：需要 {lookback + pred_len} 行，当前仅有 {len(df)} 行")
+        st.error(t("data_insufficient", L, need=lookback + pred_len, have=len(df)))
         return
 
-    with st.spinner(f"正在预测未来 {pred_len} 步..."):
-        progress = st.progress(0, text="准备数据...")
+    with st.spinner(t("predicting", L, n=pred_len)):
+        progress = st.progress(0, text=t("preparing", L))
         time.sleep(0.3)
 
         try:
             x_input, x_stamps, y_stamps, x_mean, x_std, dates_x, dates_y = \
                 prepare_input(df, lookback, pred_len)
 
-            progress.progress(0.1, text="开始推理...")
+            progress.progress(0.1, text=t("start_inference", L))
 
             def callback(step, total):
                 pct = 0.1 + 0.85 * (step / total)
-                progress.progress(pct, text=f"推理中: {step}/{total}")
+                progress.progress(pct, text=t("inference_progress", L, step=step, total=total))
 
             preds = engine.predict(
                 x_input, x_stamps, y_stamps,
@@ -180,7 +187,7 @@ def run_prediction(lookback, pred_len, temperature, top_p, greedy):
             preds_denorm = preds * x_std + x_mean
             preds_only = preds_denorm[-pred_len:]
 
-            progress.progress(1.0, text="生成结果...")
+            progress.progress(1.0, text=t("generating_result", L))
 
             pred_df = pd.DataFrame(preds_only, columns=['open', 'high', 'low', 'close', 'volume', 'amount'])
             pred_df['timestamps'] = dates_y[:pred_len]
@@ -214,15 +221,15 @@ def run_prediction(lookback, pred_len, temperature, top_p, greedy):
                 'pred_df': pred_df.copy(),
             })
 
-            progress.progress(1.0, text="完成！")
+            progress.progress(1.0, text=t("done", L))
             time.sleep(0.5)
             progress.empty()
 
-            st.success(f"预测完成！MAE (Close): {close_mae:.4f}")
+            st.success(t("pred_complete", L, v=close_mae))
             st.rerun()
 
         except Exception as e:
-            st.error(f"预测失败: {e}")
+            st.error(t("pred_failed", L, msg=e))
             raise
 
 
@@ -248,15 +255,19 @@ def run_prediction_silent(lookback, pred_len, temperature, top_p, greedy):
     return pred_df
 
 
-def show_kline(df, title="K 线图", show_volume=True):
+def show_kline(df, title=None, show_volume=True):
     """显示 K 线图"""
+    L = st.session_state.lang
+    if title is None:
+        title = t("kline_chart", L)
+
     fig = go.Figure(data=[go.Candlestick(
         x=df['timestamps'],
         open=df['open'], high=df['high'],
         low=df['low'], close=df['close'],
         increasing_line_color='#ef5350',
         decreasing_line_color='#26a69a',
-        name='K 线'
+        name=t("legend_kline", L)
     )])
 
     if show_volume and 'volume' in df.columns:
@@ -265,7 +276,7 @@ def show_kline(df, title="K 线图", show_volume=True):
         fig.add_trace(go.Bar(
             x=df['timestamps'], y=df['volume'],
             marker_color=colors, opacity=0.3,
-            yaxis='y2', name='成交量'
+            yaxis='y2', name=t("volume", L)
         ))
 
     fig.update_layout(
@@ -273,21 +284,22 @@ def show_kline(df, title="K 线图", show_volume=True):
         template='plotly_white',
         height=500,
         xaxis_rangeslider_visible=False,
-        yaxis=dict(title='价格'),
-        yaxis2=dict(overlaying='y', side='right', title='成交量', showgrid=False),
+        yaxis=dict(title=t("price", L)),
+        yaxis2=dict(overlaying='y', side='right', title=t("volume", L), showgrid=False),
     )
     st.plotly_chart(fig, use_container_width=True)
 
 
 def show_prediction_results():
     """展示预测结果"""
+    L = st.session_state.lang
     result = st.session_state.prediction_result
     pred_df = result['pred_df']
     lookback = result['lookback']
     pred_len = result['pred_len']
 
     st.divider()
-    st.subheader("🎯 预测结果")
+    st.subheader(f"🎯 {t('pred_result', L)}")
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -297,7 +309,7 @@ def show_prediction_results():
     with col3:
         st.metric("RMSE", f"{result['rmse']:.4f}")
     with col4:
-        st.metric("预测步数", f"{pred_len} 步")
+        st.metric(t("pred_steps", L), t("pred_steps_unit", L, n=pred_len))
 
     df = st.session_state.input_data
     hist_df = df[['timestamps', 'open', 'high', 'low', 'close']].iloc[:lookback].copy()
@@ -310,7 +322,7 @@ def show_prediction_results():
         low=hist_df['low'], close=hist_df['close'],
         increasing_line_color='#ef5350',
         decreasing_line_color='#26a69a',
-        name='历史数据'
+        name=t("legend_historical", L)
     ))
 
     fig.add_trace(go.Candlestick(
@@ -319,7 +331,7 @@ def show_prediction_results():
         low=pred_df['low'], close=pred_df['close'],
         increasing_line_color='#42a5f5',
         decreasing_line_color='#1e88e5',
-        name='预测数据'
+        name=t("legend_predicted", L)
     ))
 
     if lookback + pred_len <= len(df):
@@ -330,41 +342,41 @@ def show_prediction_results():
             low=actual_df['low'], close=actual_df['close'],
             increasing_line_color='#ffa726',
             decreasing_line_color='#ff7043',
-            name='实际数据',
+            name=t("legend_actual", L),
             opacity=0.5
         ))
 
         fig2 = go.Figure()
         fig2.add_trace(go.Scatter(
             x=actual_df['timestamps'], y=actual_df['close'],
-            mode='lines+markers', name='实际 Close',
+            mode='lines+markers', name=t("legend_actual_close", L),
             line=dict(color='#ff7043', width=2)
         ))
         fig2.add_trace(go.Scatter(
             x=pred_df['timestamps'], y=pred_df['close'],
-            mode='lines+markers', name='预测 Close',
+            mode='lines+markers', name=t("legend_pred_close", L),
             line=dict(color='#1e88e5', width=2, dash='dash')
         ))
         fig2.update_layout(
-            title='Close 价格对比（实际 vs 预测）',
+            title=t("close_compare_title", L),
             template='plotly_white',
             height=400,
-            xaxis_title='时间',
-            yaxis_title='价格'
+            xaxis_title=t("time", L),
+            yaxis_title=t("price", L)
         )
         st.plotly_chart(fig2, use_container_width=True)
 
     fig.update_layout(
-        title=f'K 线预测结果（{lookback} 历史数据 + {pred_len} 预测数据）',
+        title=t("kline_result_title", L, h=lookback, p=pred_len),
         template='plotly_white',
         height=600,
         xaxis_rangeslider_visible=True,
-        xaxis_title='时间',
-        yaxis_title='价格'
+        xaxis_title=t("time", L),
+        yaxis_title=t("price", L)
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("📋 预测数据")
+    st.subheader(f"📋 {t('pred_data', L)}")
     st.dataframe(pred_df, use_container_width=True, height=300)
 
     col1, col2 = st.columns(2)
@@ -372,7 +384,7 @@ def show_prediction_results():
         csv_buf = io.StringIO()
         pred_df.to_csv(csv_buf, index=False)
         st.download_button(
-            "📥 下载预测结果 (CSV)",
+            f"📥 {t('download_pred', L)}",
             csv_buf.getvalue(),
             f"kronos_prediction_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
             "text/csv"
@@ -389,86 +401,104 @@ if 'engine' not in st.session_state:
     st.session_state.history = []
 
 # ============ 侧边栏 ============
+L = st.session_state.lang
+
 with st.sidebar:
-    st.title("⚙️ 控制面板")
+    # ---- 语言选择 ----
+    lang_options = list(LANGUAGES.keys())
+    selected_label = st.radio(
+        "🌐 " + t("language_label", L),
+        lang_options,
+        index=lang_options.index("中文") if L == "zh" else (lang_options.index("English") if L == "en" else lang_options.index("한국어")),
+        horizontal=True,
+    )
+    st.session_state.lang = LANGUAGES[selected_label]
+    L = st.session_state.lang
+
+    st.title(f"⚙️ {t('sidebar_title', L)}")
     st.divider()
 
     # ---- 模型状态 ----
-    st.subheader("🤖 模型状态")
+    st.subheader(f"🤖 {t('model_status', L)}")
     if st.session_state.engine_loaded:
         info = st.session_state.engine.info
-        st.success(f"✅ {info['model']} 已加载")
+        st.success(f"✅ {t('model_loaded', L, name=info['model'])}")
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("参数量", info['params'])
+            st.metric(t("param_count", L), info['params'])
         with col2:
-            st.metric("上下文", f"{info['context_length']}")
-        st.caption(f"后端: {info['backend']}")
+            st.metric(t("context_length", L), f"{info['context_length']}")
+        st.caption(f"{t('backend', L)}: {info['backend']}")
     else:
-        st.warning("⏳ 模型未加载")
+        st.warning(f"⏳ {t('model_not_loaded', L)}")
 
-    if st.button("🔄 加载模型", type="primary", use_container_width=True):
-        with st.spinner("正在加载模型权重..."):
+    if st.button(f"🔄 {t('load_model_btn', L)}", type="primary", use_container_width=True):
+        with st.spinner(t("loading_model", L)):
             try:
                 st.session_state.engine.load()
                 st.session_state.engine_loaded = True
-                st.success("模型加载成功！")
+                st.success(t("model_load_success", L))
                 st.rerun()
             except Exception as e:
-                st.error(f"模型加载失败: {e}")
+                st.error(t("model_load_fail", L, msg=e))
 
     st.divider()
 
     # ---- 数据上传 ----
-    st.subheader("📁 数据上传")
+    st.subheader(f"📁 {t('data_upload', L)}")
     uploaded_file = st.file_uploader(
-        "上传 CSV 文件（OHLCV 格式）",
+        t("upload_csv", L),
         type=['csv'],
-        help="CSV 文件需包含 open, high, low, close 列，volume 和 amount 可选"
+        help=t("upload_csv_help", L)
     )
 
     # 合成数据按钮
-    if st.button("🎲 生成合成数据（演示）", use_container_width=True):
-        with st.spinner("生成中..."):
+    if st.button(f"🎲 {t('gen_synthetic_btn', L)}", use_container_width=True):
+        with st.spinner(t("generating", L)):
             st.session_state.input_data = generate_synthetic_data()
-            st.success(f"已生成 {len(st.session_state.input_data)} 天合成 K 线数据")
+            st.success(t("synthetic_done", L, n=len(st.session_state.input_data)))
 
     st.divider()
 
     # ---- 预测参数 ----
-    st.subheader("🎛️ 预测参数")
-    lookback = st.slider("回看窗口", 50, 1000, 200, 10,
-                         help="使用多少个历史数据点进行预测")
-    pred_len = st.number_input("预测长度", 1, 120, 30,
-                               help="预测未来多少个时间步")
+    st.subheader(f"🎛️ {t('pred_params', L)}")
+    lookback = st.slider(t("lookback_window", L), 50, 1000, 200, 10,
+                         help=t("lookback_help", L))
+    pred_len = st.number_input(t("pred_length", L), 1, 120, 30,
+                               help=t("pred_length_help", L))
     temperature = st.slider("Temperature", 0.1, 2.0, 1.0, 0.1,
-                            help="控制预测随机性，越低越保守")
+                            help=t("temperature_help", L))
     top_p = st.slider("Top-p", 0.1, 1.0, 0.9, 0.05,
-                      help="核采样概率")
-    greedy = st.checkbox("贪心解码", value=False,
-                         help="使用贪心策略而非采样")
+                      help=t("top_p_help", L))
+    greedy = st.checkbox(t("greedy_decode", L), value=False,
+                         help=t("greedy_help", L))
 
     st.divider()
 
     # ---- 运行预测 ----
-    run_btn = st.button("🔮 运行预测", type="primary",
+    run_btn = st.button(f"🔮 {t('run_pred_btn', L)}", type="primary",
                         use_container_width=True,
                         disabled=not st.session_state.engine_loaded)
 
     st.divider()
-    st.caption("Kronos 金融 K 线预测工作台 v1.0")
-    st.caption("纯 NumPy 推理 | 无需 PyTorch | CPU")
+    st.caption(t("version", L))
+    st.caption(t("backend_info", L))
 
 
 # ============ 主界面 ============
+L = st.session_state.lang
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📈 预测", "📁 数据管理", "🤖 模型信息", "📊 批量预测", "📜 历史"
+    f"📈 {t('tab_prediction', L)}",
+    f"📁 {t('tab_data_mgmt', L)}",
+    f"🤖 {t('tab_model_info', L)}",
+    f"📊 {t('tab_batch', L)}",
+    f"📜 {t('tab_history', L)}",
 ])
 
 
 # ============ Tab 1: 预测 ============
 with tab1:
-    st.header("📈 K 线预测")
+    st.header(f"📈 {t('kline_prediction', L)}")
 
     # 处理文件上传
     if uploaded_file is not None:
@@ -476,33 +506,33 @@ with tab1:
             df = pd.read_csv(uploaded_file)
             df = process_dataframe(df)
             st.session_state.input_data = df
-            st.success(f"已加载数据: {len(df)} 行")
+            st.success(t("data_loaded", L, n=len(df)))
         except Exception as e:
-            st.error(f"数据加载失败: {e}")
+            st.error(t("data_load_fail", L, msg=e))
 
     # 显示输入数据
     if st.session_state.input_data is not None:
         df = st.session_state.input_data
-        st.subheader("📊 输入数据预览")
+        st.subheader(f"📊 {t('input_preview', L)}")
 
         col_info1, col_info2, col_info3 = st.columns(3)
         with col_info1:
-            st.metric("数据行数", len(df))
+            st.metric(t("data_rows", L), len(df))
         with col_info2:
             if 'timestamps' in df.columns:
-                st.metric("时间范围",
+                st.metric(t("time_range", L),
                          f"{df['timestamps'].min().strftime('%Y-%m-%d')} ~ {df['timestamps'].max().strftime('%Y-%m-%d')}")
             else:
-                st.metric("时间范围", "N/A")
+                st.metric(t("time_range", L), "N/A")
         with col_info3:
             close_range = df['close'].max() - df['close'].min()
-            st.metric("Close 波动幅度", f"{close_range:.2f}")
+            st.metric(t("close_volatility", L), f"{close_range:.2f}")
 
         st.dataframe(df.head(50), use_container_width=True, height=300)
 
         # 历史数据 K 线图
-        st.subheader("🕯️ 历史 K 线")
-        show_kline(df, title="历史数据 K 线图")
+        st.subheader(f"🕯️ {t('history_kline', L)}")
+        show_kline(df, title=t("history_kline_title", L))
 
     # 运行预测
     if run_btn and st.session_state.input_data is not None:
@@ -515,77 +545,75 @@ with tab1:
 
 # ============ Tab 2: 数据管理 ============
 with tab2:
-    st.header("📁 数据管理")
+    st.header(f"📁 {t('data_mgmt_title', L)}")
     if st.session_state.input_data is not None:
         df = st.session_state.input_data
-        st.subheader("数据统计")
+        st.subheader(t("data_stats", L))
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.write("**基本统计**")
+            st.write(f"**{t('basic_stats', L)}**")
             st.dataframe(df[['open', 'high', 'low', 'close', 'volume']].describe())
 
         with col2:
-            st.write("**缺失值检查**")
+            st.write(f"**{t('missing_check', L)}**")
             missing = df.isnull().sum()
-            st.dataframe(missing[missing > 0].to_frame('缺失数') if missing.sum() > 0
-                        else pd.DataFrame({'缺失数': ['无缺失']}))
+            st.dataframe(missing[missing > 0].to_frame(t('missing_count', L)) if missing.sum() > 0
+                        else pd.DataFrame({t('missing_count', L): [t('no_missing', L)]}))
 
         with col3:
-            st.write("**数据质量**")
+            st.write(f"**{t('data_quality', L)}**")
             ohlc = df[['open', 'high', 'low', 'close']]
             issues = []
-            # 检查 high >= low
             bad_hl = (df['high'] < df['low']).sum()
             if bad_hl > 0:
-                issues.append(f"High < Low: {bad_hl} 行")
-            # 检查负值
+                issues.append(t("high_lt_low", L, n=bad_hl))
             neg_vals = (ohlc < 0).sum().sum()
             if neg_vals > 0:
-                issues.append(f"负值: {neg_vals} 个")
+                issues.append(t("negative_vals", L, n=neg_vals))
             if issues:
                 for issue in issues:
                     st.warning(issue)
             else:
-                st.success("数据质量良好")
+                st.success(t("data_quality_good", L))
 
-        st.subheader("完整数据")
+        st.subheader(t("full_data", L))
         st.dataframe(df, use_container_width=True)
 
         # 下载按钮
         csv_buffer = io.StringIO()
         df.to_csv(csv_buffer, index=False)
         st.download_button(
-            "📥 下载数据 (CSV)",
+            f"📥 {t('download_data', L)}",
             csv_buffer.getvalue(),
             "kronos_data.csv",
             "text/csv"
         )
     else:
-        st.info("请先上传数据文件或生成合成数据")
+        st.info(t("upload_or_gen", L))
 
 
 # ============ Tab 3: 模型信息 ============
 with tab3:
-    st.header("🤖 模型信息")
+    st.header(f"🤖 {t('model_info_title', L)}")
 
     info = st.session_state.engine.info
 
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("模型参数")
+        st.subheader(t("model_params", L))
         model_info_data = {
-            "模型名称": info['model'],
-            "参数量": info['params'],
-            "上下文长度": str(info['context_length']),
-            "Tokenizer": info['tokenizer'],
-            "推理后端": info['backend'],
+            t("model_name", L): info['model'],
+            t("param_count_label", L): info['params'],
+            t("context_len_label", L): str(info['context_length']),
+            t("tokenizer_label", L): info['tokenizer'],
+            t("inference_backend", L): info['backend'],
         }
         for k, v in model_info_data.items():
             st.write(f"**{k}**: {v}")
 
     with col2:
-        st.subheader("模型架构")
+        st.subheader(t("model_arch", L))
         st.markdown("""
         ```
         Kronos-mini (Decoder-only Transformer)
@@ -606,57 +634,57 @@ with tab3:
         ```
         """)
 
-    st.subheader("BSQ 分词器")
-    st.markdown("""
-    - **类型**: Binary Spherical Quantization (BSQ)
+    st.subheader(t("bsq_tokenizer", L))
+    st.markdown(f"""
+    - **{t('bsq_desc_type', L)}**
     - **codebook_dim**: 20 (s1_bits=10, s2_bits=10)
     - **词汇量**: s1=1024 (2^10), s2=1024 (2^10)
-    - **量化**: 归一化 -> 二值化 -> 缩放
-    - **编码**: OHLCV (6维) -> 层次化 token (s1, s2)
+    - **{t('bsq_desc_quant', L)}**
+    - **{t('bsq_desc_encode', L)}**
     """)
 
-    st.subheader("推理流程")
-    st.markdown("""
-    1. **编码**: OHLCV -> BSQ 量化 -> s1/s2 token
-    2. **自回归生成**: 逐步预测 s1 token (主解码器)
-    3. **交叉注意力**: 用 s1 token 引导 s2 解码 (依赖感知层)
-    4. **解码**: token -> OHLCV 输出
+    st.subheader(t("inference_flow", L))
+    st.markdown(f"""
+    1. **{t('flow_step1', L)}**
+    2. **{t('flow_step2', L)}**
+    3. **{t('flow_step3', L)}**
+    4. **{t('flow_step4', L)}**
     """)
 
 
 # ============ Tab 4: 批量预测 ============
 with tab4:
-    st.header("📊 批量预测")
-    st.info("可上传多个参数组合进行对比预测")
+    st.header(f"📊 {t('batch_title', L)}")
+    st.info(t("batch_info", L))
 
-    n_runs = st.number_input("预测轮次", 1, 10, 3)
+    n_runs = st.number_input(t("batch_runs", L), 1, 10, 3)
 
-    if st.button("🚀 批量运行", type="primary"):
+    if st.button(f"🚀 {t('batch_run_btn', L)}", type="primary"):
         if st.session_state.input_data is None or not st.session_state.engine_loaded:
-            st.error("请先加载数据和模型")
+            st.error(t("upload_or_gen", L))
         else:
             results = []
-            progress = st.progress(0, text="批量预测中...")
+            progress = st.progress(0, text=t("batch_progress", L))
             for r in range(n_runs):
                 T = np.random.uniform(0.5, 1.5)
                 result = run_prediction_silent(lookback, pred_len, T, 0.9, greedy)
                 results.append({
-                    "轮次": r + 1,
+                    t("batch_col_round", L): r + 1,
                     "Temperature": round(T, 2),
                     "Pred_Close": round(result['close'].mean(), 2),
                     "Pred_High": round(result['high'].max(), 2),
                     "Pred_Low": round(result['low'].min(), 2),
                 })
-                progress.progress((r + 1) / n_runs, text=f"轮次 {r+1}/{n_runs} 完成")
+                progress.progress((r + 1) / n_runs, text=t("batch_round_done", L, cur=r+1, total=n_runs))
 
             progress.empty()
-            st.subheader("批量结果对比")
+            st.subheader(t("batch_result_title", L))
             st.dataframe(pd.DataFrame(results), use_container_width=True)
 
 
 # ============ Tab 5: 历史 ============
 with tab5:
-    st.header("📜 预测历史")
+    st.header(f"📜 {t('history_title', L)}")
 
     if st.session_state.history:
         for i, record in enumerate(reversed(st.session_state.history)):
@@ -676,4 +704,4 @@ with tab5:
                 if 'pred_df' in record:
                     st.dataframe(record['pred_df'], use_container_width=True)
     else:
-        st.info("暂无预测历史记录")
+        st.info(t("no_history", L))
